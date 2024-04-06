@@ -1,17 +1,18 @@
 import Config, * as UpdateConfig from "../config";
 import * as ThemeController from "../controllers/theme-controller";
 import * as Misc from "../utils/misc";
+import * as JSONData from "../utils/json-data";
+import * as Colors from "../utils/colors";
 import * as Notifications from "../elements/notifications";
 import * as ThemeColors from "../elements/theme-colors";
 import * as ChartController from "../controllers/chart-controller";
-import * as ShareCustomThemePopup from "../popups/share-custom-theme-popup";
 import * as Loader from "../elements/loader";
 import * as DB from "../db";
 import * as ConfigEvent from "../observables/config-event";
-import { Auth } from "../firebase";
+import { isAuthenticated } from "../firebase";
 import * as ActivePage from "../states/active-page";
 
-export function updateActiveButton(): void {
+function updateActiveButton(): void {
   let activeThemeName = Config.theme;
   if (
     Config.randomTheme !== "off" &&
@@ -34,7 +35,7 @@ export function updateActiveButton(): void {
 }
 
 function updateColors(
-  colorPicker: JQuery<HTMLElement>,
+  colorPicker: JQuery,
   color: string,
   onlyStyle = false,
   noThemeUpdate = false
@@ -83,7 +84,7 @@ function updateColors(
   }
 
   $(".colorConverter").css("color", color);
-  const hexColor: string | undefined = Misc.convertRGBtoHEX(
+  const hexColor: string | undefined = Colors.rgbStringtoHex(
     $(".colorConverter").css("color")
   );
   if (hexColor === undefined) {
@@ -118,14 +119,14 @@ export async function refreshButtons(): Promise<void> {
     ).empty();
     const addButton = $(".pageSettings .section.themes .addCustomThemeButton");
 
-    if (!Auth?.currentUser) {
+    if (!isAuthenticated()) {
       $(
-        ".pageSettings .section.themes .customThemeEdit .saveCustomThemeButton"
+        ".pageSettings .section.themes .customThemeEdit #saveCustomThemeButton"
       ).text("save");
       return;
     } else {
       $(
-        ".pageSettings .section.themes .customThemeEdit .saveCustomThemeButton"
+        ".pageSettings .section.themes .customThemeEdit #saveCustomThemeButton"
       ).text("save as new");
     }
 
@@ -172,7 +173,7 @@ export async function refreshButtons(): Promise<void> {
 
     let themes;
     try {
-      themes = await Misc.getSortedThemesList();
+      themes = await JSONData.getSortedThemesList();
     } catch (e) {
       Notifications.add(
         Misc.createErrorMessage(e, "Failed to refresh theme buttons"),
@@ -196,16 +197,16 @@ export async function refreshButtons(): Promise<void> {
             <div class="favButton active"><i class="fas fa-star"></i></div>
             <div class="text">${theme.name.replace(/_/g, " ")}</div>
             <div class="themeBubbles" style="background: ${
-              theme["bgColor"]
-            };outline: 0.25rem solid ${theme["bgColor"]};">
+              theme.bgColor
+            };outline: 0.25rem solid ${theme.bgColor};">
               <div class="themeBubble" style="background: ${
-                theme["mainColor"]
+                theme.mainColor
               }"></div>
               <div class="themeBubble" style="background: ${
-                theme["subColor"]
+                theme.subColor
               }"></div>
               <div class="themeBubble" style="background: ${
-                theme["textColor"]
+                theme.textColor
               }"></div>
             </div>
             </div>
@@ -232,17 +233,11 @@ export async function refreshButtons(): Promise<void> {
         <div class="favButton"><i class="far fa-star"></i></div>
         <div class="text">${theme.name.replace(/_/g, " ")}</div>
         <div class="themeBubbles" style="background: ${
-          theme["bgColor"]
-        };outline: 0.25rem solid ${theme["bgColor"]};">
-          <div class="themeBubble" style="background: ${
-            theme["mainColor"]
-          }"></div>
-          <div class="themeBubble" style="background: ${
-            theme["subColor"]
-          }"></div>
-          <div class="themeBubble" style="background: ${
-            theme["textColor"]
-          }"></div>
+          theme.bgColor
+        };outline: 0.25rem solid ${theme.bgColor};">
+          <div class="themeBubble" style="background: ${theme.mainColor}"></div>
+          <div class="themeBubble" style="background: ${theme.subColor}"></div>
+          <div class="themeBubble" style="background: ${theme.textColor}"></div>
         </div>
         </div>
         `;
@@ -255,12 +250,11 @@ export function setCustomInputs(noThemeUpdate = false): void {
   $(
     ".pageSettings .section.themes .tabContainer .customTheme .colorPicker"
   ).each((_index, element: HTMLElement) => {
-    const currentColor =
-      Config.customThemeColors[
-        ThemeController.colorVars.indexOf(
-          $(element).find("input.color").attr("id") as string
-        )
-      ];
+    const currentColor = Config.customThemeColors[
+      ThemeController.colorVars.indexOf(
+        $(element).find("input.color").attr("id") as string
+      )
+    ] as string;
     updateColors($(element), currentColor, false, noThemeUpdate);
   });
 }
@@ -271,14 +265,14 @@ function toggleFavourite(themeName: string): void {
     UpdateConfig.setFavThemes(Config.favThemes.filter((t) => t !== themeName));
   } else {
     // add to favourites
-    const newList: Array<string> = Config.favThemes;
+    const newList: string[] = Config.favThemes;
     newList.push(themeName);
     UpdateConfig.setFavThemes(newList);
   }
   UpdateConfig.saveFullConfigToLocalStorage();
 }
 
-export function saveCustomThemeColors(): void {
+function saveCustomThemeColors(): void {
   const newColors: string[] = [];
   for (const color of ThemeController.colorVars) {
     newColors.push(
@@ -295,19 +289,19 @@ export function updateActiveTab(forced = false): void {
   // Set force to true only when some change for the active tab has taken place
   // Prevent theme buttons from being added twice by doing an update only when the state has changed
   const $presetTabButton = $(
-    ".pageSettings .section.themes .tabs .button[tab='preset']"
+    ".pageSettings .section.themes .tabs button[data-tab='preset']"
   );
   const $customTabButton = $(
-    ".pageSettings .section.themes .tabs .button[tab='custom']"
+    ".pageSettings .section.themes .tabs button[data-tab='custom']"
   );
 
   if (Config.customTheme) {
     $presetTabButton.removeClass("active");
     if (!$customTabButton.hasClass("active") || forced) {
       $customTabButton.addClass("active");
-      refreshButtons();
+      void refreshButtons();
     }
-    Misc.swapElements(
+    void Misc.swapElements(
       $('.pageSettings [tabContent="preset"]'),
       $('.pageSettings [tabContent="custom"]'),
       250
@@ -316,9 +310,9 @@ export function updateActiveTab(forced = false): void {
     $customTabButton.removeClass("active");
     if (!$presetTabButton.hasClass("active") || forced) {
       $presetTabButton.addClass("active");
-      refreshButtons();
+      void refreshButtons();
     }
-    Misc.swapElements(
+    void Misc.swapElements(
       $('.pageSettings [tabContent="custom"]'),
       $('.pageSettings [tabContent="preset"]'),
       250
@@ -329,13 +323,13 @@ export function updateActiveTab(forced = false): void {
 // Add events to the DOM
 
 // Handle click on theme: preset or custom tab
-$(".pageSettings .section.themes .tabs .button").on("click", (e) => {
-  $(".pageSettings .section.themes .tabs .button").removeClass("active");
+$(".pageSettings .section.themes .tabs button").on("click", (e) => {
+  $(".pageSettings .section.themes .tabs button").removeClass("active");
   const $target = $(e.currentTarget);
   $target.addClass("active");
   // setCustomInputs();
   //test
-  if ($target.attr("tab") === "preset") {
+  if ($target.attr("data-tab") === "preset") {
     UpdateConfig.setCustomTheme(false);
   } else {
     UpdateConfig.setCustomTheme(true);
@@ -348,7 +342,20 @@ $(".pageSettings").on("click", " .section.themes .customTheme.button", (e) => {
   if ($(e.target).hasClass("delButton")) return;
   if ($(e.target).hasClass("editButton")) return;
   const customThemeId = $(e.currentTarget).attr("customThemeId") ?? "";
-  ThemeController.set(customThemeId, true);
+  const theme = DB.getSnapshot()?.customThemes?.find(
+    (e) => e._id === customThemeId
+  );
+
+  if (theme === undefined) {
+    //this shouldnt happen but typescript needs this check
+    console.error(
+      "Could not find custom theme in snapshot for id ",
+      customThemeId
+    );
+    return;
+  }
+
+  UpdateConfig.setCustomThemeColors(theme.colors);
 });
 
 // Handle click on favorite preset theme button
@@ -451,14 +458,9 @@ $(".pageSettings #loadCustomColorsFromPreset").on("click", async () => {
   // }, 250);
 });
 
-// Handles click on share custom theme button
-$("#shareCustomThemeButton").on("click", () => {
-  ShareCustomThemePopup.show();
-});
-
-$(".pageSettings .saveCustomThemeButton").on("click", async () => {
+$(".pageSettings #saveCustomThemeButton").on("click", async () => {
   saveCustomThemeColors();
-  if (Auth?.currentUser) {
+  if (isAuthenticated()) {
     const newCustomTheme = {
       name: "custom",
       colors: Config.customThemeColors,
@@ -476,7 +478,7 @@ $(".pageSettings .saveCustomThemeButton").on("click", async () => {
 });
 
 ConfigEvent.subscribe((eventKey) => {
-  if (eventKey === "customThemeId") refreshButtons();
+  if (eventKey === "customThemeId") void refreshButtons();
   if (eventKey === "theme" && ActivePage.get() === "settings") {
     updateActiveButton();
   }

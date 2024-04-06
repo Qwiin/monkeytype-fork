@@ -7,10 +7,11 @@ import * as DiscordUtils from "../../utils/discord";
 import {
   MILLISECONDS_IN_DAY,
   buildAgentLog,
+  isDevEnvironment,
   sanitizeString,
 } from "../../utils/misc";
 import GeorgeQueue from "../../queues/george-queue";
-import admin from "firebase-admin";
+import admin, { FirebaseError } from "firebase-admin";
 import { deleteAllApeKeys } from "../../dal/ape-keys";
 import { deleteAllPresets } from "../../dal/preset";
 import { deleteAll as deleteAllResults } from "../../dal/result";
@@ -25,6 +26,10 @@ import { ObjectId } from "mongodb";
 import * as ReportDAL from "../../dal/report";
 import emailQueue from "../../queues/email-queue";
 import FirebaseAdmin from "../../init/firebase-admin";
+import {
+  removeTokensFromCacheByUid,
+  deleteUser as firebaseDeleteUser,
+} from "../../utils/auth";
 
 async function verifyCaptcha(captcha: string): Promise<void> {
   if (!(await verify(captcha))) {
@@ -42,7 +47,7 @@ export async function createNewUser(
     await verifyCaptcha(captcha);
   } catch (e) {
     try {
-      await FirebaseAdmin().auth().deleteUser(uid);
+      await firebaseDeleteUser(uid);
     } catch (e) {
       // user might be deleted on the frontend
     }
@@ -59,7 +64,7 @@ export async function createNewUser(
   }
 
   await UserDAL.addUser(name, email, uid);
-  Logger.logToDb("user_created", `${name} ${email}`, uid);
+  void Logger.logToDb("user_created", `${name} ${email}`, uid);
 
   return new MonkeyResponse("User created");
 }
@@ -81,7 +86,7 @@ export async function sendVerificationEmail(
         );
       })
   ).emailVerified;
-  if (isVerified === true) {
+  if (isVerified) {
     throw new MonkeyError(400, "Email already verified");
   }
 
@@ -99,23 +104,23 @@ export async function sendVerificationEmail(
     link = await FirebaseAdmin()
       .auth()
       .generateEmailVerificationLink(email, {
-        url:
-          process.env.MODE === "dev"
-            ? "http://localhost:3000"
-            : "https://monkeytype.com",
+        url: isDevEnvironment()
+          ? "http://localhost:3000"
+          : "https://monkeytype.com",
       });
   } catch (e) {
+    const firebaseError = e as FirebaseError;
     if (
-      e.code === "auth/internal-error" &&
-      e.message.includes("TOO_MANY_ATTEMPTS_TRY_LATER")
+      firebaseError.code === "auth/internal-error" &&
+      firebaseError.message.includes("TOO_MANY_ATTEMPTS_TRY_LATER")
     ) {
       // for some reason this error is not handled with a custom auth/ code, so we have to do it manually
       throw new MonkeyError(429, "Too many requests. Please try again later");
     }
-    if (e.code === "auth/user-not-found") {
+    if (firebaseError.code === "auth/user-not-found") {
       throw new MonkeyError(
         500,
-        "Auth user not found when the user was found in the database",
+        "Auth user not found when the user was found in the database. Contact support with this error message and your email",
         JSON.stringify({
           decodedTokenEmail: email,
           userInfoEmail: userInfo.email,
@@ -124,7 +129,12 @@ export async function sendVerificationEmail(
         userInfo.uid
       );
     }
-    throw e;
+    if (firebaseError.message.includes("Internal error encountered.")) {
+      throw new MonkeyError(
+        500,
+        "Firebase failed to generate an email verification link. Please try again later."
+      );
+    }
   }
 
   await emailQueue.sendVerificationEmail(email, userInfo.name, link);
@@ -137,32 +147,30 @@ export async function sendForgotPasswordEmail(
 ): Promise<MonkeyResponse> {
   const { email } = req.body;
 
-  let auth;
   try {
-    auth = await FirebaseAdmin().auth().getUserByEmail(email);
-  } catch (e) {
-    if (e.code === "auth/user-not-found") {
-      throw new MonkeyError(404, "User not found");
-    }
-    throw e;
-  }
+    const uid = (await FirebaseAdmin().auth().getUserByEmail(email)).uid;
+    const userInfo = await UserDAL.getUser(
+      uid,
+      "request forgot password email"
+    );
 
-  const userInfo = await UserDAL.getUser(
-    auth.uid,
-    "request forgot password email"
-  );
-
-  const link = await FirebaseAdmin()
-    .auth()
-    .generatePasswordResetLink(email, {
-      url:
-        process.env.MODE === "dev"
+    const link = await FirebaseAdmin()
+      .auth()
+      .generatePasswordResetLink(email, {
+        url: isDevEnvironment()
           ? "http://localhost:3000"
           : "https://monkeytype.com",
-    });
-  await emailQueue.sendForgotPasswordEmail(email, userInfo.name, link);
+      });
 
-  return new MonkeyResponse("Email sent if user was found");
+    await emailQueue.sendForgotPasswordEmail(email, userInfo.name, link);
+  } catch {
+    return new MonkeyResponse(
+      "Password reset request received. If the email is valid, you will receive an email shortly."
+    );
+  }
+  return new MonkeyResponse(
+    "Password reset request received. If the email is valid, you will receive an email shortly."
+  );
 }
 
 export async function deleteUser(
@@ -171,18 +179,28 @@ export async function deleteUser(
   const { uid } = req.ctx.decodedToken;
 
   const userInfo = await UserDAL.getUser(uid, "delete user");
+
+  //cleanup database
   await Promise.all([
     UserDAL.deleteUser(uid),
     deleteAllApeKeys(uid),
     deleteAllPresets(uid),
     deleteConfig(uid),
+    deleteAllResults(uid),
     purgeUserFromDailyLeaderboards(
       uid,
       req.ctx.configuration.dailyLeaderboards
     ),
   ]);
 
-  Logger.logToDb("user_deleted", `${userInfo.email} ${userInfo.name}`, uid);
+  //delete user from
+  await firebaseDeleteUser(uid);
+
+  void Logger.logToDb(
+    "user_deleted",
+    `${userInfo.email} ${userInfo.name}`,
+    uid
+  );
 
   return new MonkeyResponse("User deleted");
 }
@@ -193,7 +211,7 @@ export async function resetUser(
   const { uid } = req.ctx.decodedToken;
 
   const userInfo = await UserDAL.getUser(uid, "reset user");
-  await Promise.all([
+  const promises = [
     UserDAL.resetUser(uid),
     deleteAllApeKeys(uid),
     deleteAllPresets(uid),
@@ -203,8 +221,13 @@ export async function resetUser(
       uid,
       req.ctx.configuration.dailyLeaderboards
     ),
-  ]);
-  Logger.logToDb("user_reset", `${userInfo.email} ${userInfo.name}`, uid);
+  ];
+
+  if (userInfo.discordId !== undefined && userInfo.discordId !== "") {
+    promises.push(GeorgeQueue.unlinkDiscord(userInfo.discordId, uid));
+  }
+  await Promise.all(promises);
+  void Logger.logToDb("user_reset", `${userInfo.email} ${userInfo.name}`, uid);
 
   return new MonkeyResponse("User reset");
 }
@@ -225,7 +248,7 @@ export async function updateName(
   }
 
   await UserDAL.updateName(uid, name, user.name);
-  Logger.logToDb(
+  void Logger.logToDb(
     "user_name_updated",
     `changed name from ${user.name} to ${name}`,
     uid
@@ -244,7 +267,7 @@ export async function clearPb(
     uid,
     req.ctx.configuration.dailyLeaderboards
   );
-  Logger.logToDb("user_cleared_pbs", "", uid);
+  void Logger.logToDb("user_cleared_pbs", "", uid);
 
   return new MonkeyResponse("User's PB cleared");
 }
@@ -259,7 +282,7 @@ export async function optOutOfLeaderboards(
     uid,
     req.ctx.configuration.dailyLeaderboards
   );
-  Logger.logToDb("user_opted_out_of_leaderboards", "", uid);
+  void Logger.logToDb("user_opted_out_of_leaderboards", "", uid);
 
   return new MonkeyResponse("User opted out of leaderboards");
 }
@@ -270,7 +293,7 @@ export async function checkName(
   const { name } = req.params;
   const { uid } = req.ctx.decodedToken;
 
-  const available = await UserDAL.isNameAvailable(name, uid);
+  const available = await UserDAL.isNameAvailable(name as string, uid);
   if (!available) {
     throw new MonkeyError(409, "Username unavailable");
   }
@@ -282,7 +305,9 @@ export async function updateEmail(
   req: MonkeyTypes.Request
 ): Promise<MonkeyResponse> {
   const { uid } = req.ctx.decodedToken;
-  const { newEmail } = req.body;
+  let { newEmail } = req.body;
+
+  newEmail = newEmail.toLowerCase();
 
   try {
     await UserDAL.updateEmail(uid, newEmail);
@@ -290,14 +315,18 @@ export async function updateEmail(
     throw new MonkeyError(404, e.message, "update email", uid);
   }
 
-  Logger.logToDb("user_email_updated", `changed email to ${newEmail}`, uid);
+  void Logger.logToDb(
+    "user_email_updated",
+    `changed email to ${newEmail}`,
+    uid
+  );
 
   return new MonkeyResponse("Email updated");
 }
 
 function getRelevantUserInfo(
-  user: MonkeyTypes.User
-): Partial<MonkeyTypes.User> {
+  user: MonkeyTypes.DBUser
+): Partial<MonkeyTypes.DBUser> {
   return _.omit(user, [
     "bananas",
     "lbPersonalBests",
@@ -307,6 +336,7 @@ function getRelevantUserInfo(
     "_id",
     "lastResultHashes",
     "note",
+    "ips",
   ]);
 }
 
@@ -315,23 +345,27 @@ export async function getUser(
 ): Promise<MonkeyResponse> {
   const { uid } = req.ctx.decodedToken;
 
-  let userInfo: MonkeyTypes.User;
+  let userInfo: MonkeyTypes.DBUser;
   try {
     userInfo = await UserDAL.getUser(uid, "get user");
   } catch (e) {
     if (e.status === 404) {
-      let user;
+      //if the user is in the auth system but not in the db, its possible that the user was created by bypassing captcha
+      //since there is no data in the database anyway, we can just delete the user from the auth system
+      //and ask them to sign up again
       try {
-        user = await FirebaseAdmin().auth().getUser(uid);
-        //exists, recreate in db
-        await UserDAL.addUser(user.displayName, user.email, uid);
-        userInfo = await UserDAL.getUser(uid, "get user (recreated)");
+        await firebaseDeleteUser(uid);
+        throw new MonkeyError(
+          404,
+          "User not found in the database, but found in the auth system. We have deleted the ghost user from the auth system. Please sign up again.",
+          "get user",
+          uid
+        );
       } catch (e) {
         if (e.code === "auth/user-not-found") {
-          //doesnt exist
           throw new MonkeyError(
             404,
-            "User not found in the database or authentication system. Please try to sign up again.",
+            "User not found in the database or the auth system. Please sign up again.",
             "get user",
             uid
           );
@@ -353,7 +387,8 @@ export async function getUser(
   };
 
   const agentLog = buildAgentLog(req);
-  Logger.logToDb("user_data_requested", agentLog, uid);
+  void Logger.logToDb("user_data_requested", agentLog, uid);
+  void UserDAL.logIpAddress(uid, agentLog.ip, userInfo);
 
   let inboxUnreadSize = 0;
   if (req.ctx.configuration.users.inbox.enabled) {
@@ -362,12 +397,18 @@ export async function getUser(
 
   if (!userInfo.name) {
     userInfo.needsToChangeName = true;
-    UserDAL.flagForNameChange(uid);
+    await UserDAL.flagForNameChange(uid);
   }
+
+  const isPremium = await UserDAL.checkIfUserIsPremium(uid, userInfo);
+
+  const allTimeLbs = await getAllTimeLbs(uid);
 
   const userData = {
     ...getRelevantUserInfo(userInfo),
     inboxUnreadSize: inboxUnreadSize,
+    isPremium,
+    allTimeLbs,
   };
 
   return new MonkeyResponse("User data retrieved", userData);
@@ -408,7 +449,7 @@ export async function linkDiscord(
 
   const redisToken = await connection.getdel(`discordoauth:${uid}`);
 
-  if (!redisToken || redisToken !== state) {
+  if (!(redisToken ?? "") || redisToken !== state) {
     throw new MonkeyError(403, "Invalid user token");
   }
 
@@ -420,7 +461,7 @@ export async function linkDiscord(
   const { id: discordId, avatar: discordAvatar } =
     await DiscordUtils.getDiscordUser(tokenType, accessToken);
 
-  if (userInfo.discordId) {
+  if (userInfo.discordId !== undefined && userInfo.discordId !== "") {
     await UserDAL.linkDiscord(uid, userInfo.discordId, discordAvatar);
     return new MonkeyResponse("Discord avatar updated", {
       discordId,
@@ -446,8 +487,8 @@ export async function linkDiscord(
 
   await UserDAL.linkDiscord(uid, discordId, discordAvatar);
 
-  GeorgeQueue.linkDiscord(discordId, uid);
-  Logger.logToDb("user_discord_link", `linked to ${discordId}`, uid);
+  await GeorgeQueue.linkDiscord(discordId, uid);
+  void Logger.logToDb("user_discord_link", `linked to ${discordId}`, uid);
 
   return new MonkeyResponse("Discord account linked", {
     discordId,
@@ -461,13 +502,14 @@ export async function unlinkDiscord(
   const { uid } = req.ctx.decodedToken;
 
   const userInfo = await UserDAL.getUser(uid, "unlink discord");
-  if (!userInfo.discordId) {
+  const discordId = userInfo.discordId;
+  if (discordId === undefined || discordId === "") {
     throw new MonkeyError(404, "User does not have a linked Discord account");
   }
 
-  GeorgeQueue.unlinkDiscord(userInfo.discordId, uid);
+  await GeorgeQueue.unlinkDiscord(discordId, uid);
   await UserDAL.unlinkDiscord(uid);
-  Logger.logToDb("user_discord_unlinked", userInfo.discordId, uid);
+  void Logger.logToDb("user_discord_unlinked", discordId, uid);
 
   return new MonkeyResponse("Discord account unlinked");
 }
@@ -493,7 +535,7 @@ export async function removeResultFilterPreset(
   const { uid } = req.ctx.decodedToken;
   const { presetId } = req.params;
 
-  await UserDAL.removeResultFilterPreset(uid, presetId);
+  await UserDAL.removeResultFilterPreset(uid, presetId as string);
   return new MonkeyResponse("Result filter preset deleted");
 }
 
@@ -513,7 +555,7 @@ export async function clearTagPb(
   const { uid } = req.ctx.decodedToken;
   const { tagId } = req.params;
 
-  await UserDAL.removeTagPb(uid, tagId);
+  await UserDAL.removeTagPb(uid, tagId as string);
   return new MonkeyResponse("Tag PB cleared");
 }
 
@@ -533,7 +575,7 @@ export async function removeTag(
   const { uid } = req.ctx.decodedToken;
   const { tagId } = req.params;
 
-  await UserDAL.removeTag(uid, tagId);
+  await UserDAL.removeTag(uid, tagId as string);
   return new MonkeyResponse("Tag deleted");
 }
 
@@ -551,7 +593,8 @@ export async function updateLbMemory(
 ): Promise<MonkeyResponse> {
   const { uid } = req.ctx.decodedToken;
   const { mode, language, rank } = req.body;
-  const mode2 = req.body.mode2 as MonkeyTypes.Mode2<MonkeyTypes.Mode>;
+  const mode2 = req.body
+    .mode2 as SharedTypes.Config.Mode2<SharedTypes.Config.Mode>;
 
   await UserDAL.updateLbMemory(uid, mode, mode2, language, rank);
   return new MonkeyResponse("Leaderboard memory updated");
@@ -667,8 +710,8 @@ export async function getProfile(
 
   const user =
     isUid !== undefined
-      ? await UserDAL.getUser(uidOrName, "get user profile")
-      : await UserDAL.getUserByName(uidOrName, "get user profile");
+      ? await UserDAL.getUser(uidOrName as string, "get user profile")
+      : await UserDAL.getUserByName(uidOrName as string, "get user profile");
 
   const {
     name,
@@ -713,51 +756,22 @@ export async function getProfile(
     streak: streak?.length ?? 0,
     maxStreak: streak?.maxLength ?? 0,
     lbOptOut,
+    isPremium: await UserDAL.checkIfUserIsPremium(user.uid, user),
   };
 
   if (banned) {
     return new MonkeyResponse("Profile retrived: banned user", baseProfile);
   }
 
-  const allTime15English = await LeaderboardsDAL.getRank(
-    "time",
-    "15",
-    "english",
-    user.uid
-  );
-
-  const allTime60English = await LeaderboardsDAL.getRank(
-    "time",
-    "60",
-    "english",
-    user.uid
-  );
-
-  const allTime15EnglishRank = allTime15English
-    ? allTime15English.rank
-    : undefined;
-  const allTime60EnglishRank = allTime60English
-    ? allTime60English.rank
-    : undefined;
-
-  const alltimelbs = {
-    time: {
-      "15": {
-        english: allTime15EnglishRank,
-      },
-      "60": {
-        english: allTime60EnglishRank,
-      },
-    },
-  };
+  const allTimeLbs = await getAllTimeLbs(user.uid);
 
   const profileData = {
     ...baseProfile,
     inventory,
     details: profileDetails,
-    allTimeLbs: alltimelbs,
+    allTimeLbs,
     uid: user.uid,
-  };
+  } as SharedTypes.UserProfile;
 
   return new MonkeyResponse("Profile retrieved", profileData);
 }
@@ -782,10 +796,13 @@ export async function updateProfile(
     }
   });
 
-  const profileDetailsUpdates: Partial<MonkeyTypes.UserProfileDetails> = {
+  const profileDetailsUpdates: Partial<SharedTypes.UserProfileDetails> = {
     bio: sanitizeString(bio),
     keyboard: sanitizeString(keyboard),
-    socialProfiles: _.mapValues(socialProfiles, sanitizeString),
+    socialProfiles: _.mapValues(
+      socialProfiles,
+      sanitizeString
+    ) as SharedTypes.UserProfileDetails["socialProfiles"],
   };
 
   await UserDAL.updateProfile(uid, profileDetailsUpdates, user.inventory);
@@ -872,16 +889,69 @@ export async function toggleBan(
 
   const user = await UserDAL.getUser(uid, "toggle ban");
   const discordId = user.discordId;
+  const discordIdIsValid = discordId !== undefined && discordId !== "";
 
   if (user.banned) {
-    UserDAL.setBanned(uid, false);
-    if (discordId) GeorgeQueue.userBanned(discordId, false);
+    await UserDAL.setBanned(uid, false);
+    if (discordIdIsValid) await GeorgeQueue.userBanned(discordId, false);
   } else {
-    UserDAL.setBanned(uid, true);
-    if (discordId) GeorgeQueue.userBanned(discordId, true);
+    await UserDAL.setBanned(uid, true);
+    if (discordIdIsValid) await GeorgeQueue.userBanned(discordId, true);
   }
 
   return new MonkeyResponse(`Ban toggled`, {
     banned: !user.banned,
   });
+}
+
+export async function revokeAllTokens(
+  req: MonkeyTypes.Request
+): Promise<MonkeyResponse> {
+  const { uid } = req.ctx.decodedToken;
+  await FirebaseAdmin().auth().revokeRefreshTokens(uid);
+  removeTokensFromCacheByUid(uid);
+  return new MonkeyResponse("All tokens revoked");
+}
+
+async function getAllTimeLbs(uid: string): Promise<SharedTypes.AllTimeLbs> {
+  const allTime15English = await LeaderboardsDAL.getRank(
+    "time",
+    "15",
+    "english",
+    uid
+  );
+
+  const allTime60English = await LeaderboardsDAL.getRank(
+    "time",
+    "60",
+    "english",
+    uid
+  );
+
+  const english15 =
+    allTime15English === false
+      ? undefined
+      : ({
+          rank: allTime15English.rank,
+          count: allTime15English.count,
+        } as SharedTypes.RankAndCount);
+
+  const english60 =
+    allTime60English === false
+      ? undefined
+      : ({
+          rank: allTime60English.rank,
+          count: allTime60English.count,
+        } as SharedTypes.RankAndCount);
+
+  return {
+    time: {
+      "15": {
+        english: english15,
+      },
+      "60": {
+        english: english60,
+      },
+    },
+  };
 }

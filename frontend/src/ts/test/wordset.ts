@@ -1,5 +1,6 @@
 import * as FunboxList from "./funbox/funbox-list";
-import { dreymarIndex, randomElementFromArray } from "../utils/misc";
+import { dreymarIndex } from "../utils/misc";
+import { randomElementFromArray } from "../utils/arrays";
 import Config from "../config";
 
 let currentWordset: Wordset | null = null;
@@ -14,7 +15,7 @@ export class Wordset {
 
   public randomWord(mode: MonkeyTypes.FunboxWordsFrequency): string {
     if (mode === "zipf") {
-      return this.words[dreymarIndex(this.words.length)];
+      return this.words[dreymarIndex(this.words.length)] as string;
     } else {
       return randomElementFromArray(this.words);
     }

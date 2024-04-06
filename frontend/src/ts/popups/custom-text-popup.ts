@@ -5,18 +5,18 @@ import * as TestLogic from "../test/test-logic";
 import * as ChallengeController from "../controllers/challenge-controller";
 import Config, * as UpdateConfig from "../config";
 import * as Misc from "../utils/misc";
-import * as WordFilterPopup from "./word-filter-popup";
+import * as WordFilterPopup from "../modals/word-filter";
 import * as Notifications from "../elements/notifications";
 import * as SavedTextsPopup from "./saved-texts-popup";
 import * as SaveCustomTextPopup from "./save-custom-text-popup";
-import * as Skeleton from "./skeleton";
+import * as Skeleton from "../utils/skeleton";
 
 const skeletonId = "customTextPopupWrapper";
 
 const wrapper = "#customTextPopupWrapper";
 const popup = "#customTextPopup";
 
-export function updateLongTextWarning(): void {
+function updateLongTextWarning(): void {
   if (CustomTextState.isCustomTextLong() === true) {
     $(`${popup} .longCustomTextWarning`).removeClass("hidden");
     $(`${popup} .randomWordsCheckbox input`).prop("checked", false);
@@ -30,8 +30,10 @@ export function updateLongTextWarning(): void {
   }
 }
 
+//todo: rewrite this file to use a state object instead of constantly directly accessing the DOM
+
 export function show(noAnim = false): void {
-  Skeleton.append(skeletonId);
+  Skeleton.append(skeletonId, "popups");
   if (!Misc.isElementVisible(wrapper)) {
     updateLongTextWarning();
 
@@ -51,12 +53,14 @@ export function show(noAnim = false): void {
       $(`${popup} .delimiterCheck input`).prop("checked", false);
     }
 
-    if ($(`${popup} .randomWordsCheckbox input`).prop("checked")) {
+    if ($(`${popup} .randomWordsCheckbox input`).prop("checked") as boolean) {
       $(`${popup} .inputs .randomInputFields`).removeClass("disabled");
     } else {
       $(`${popup} .inputs .randomInputFields`).addClass("disabled");
     }
-    if ($(`${popup} .replaceNewlineWithSpace input`).prop("checked")) {
+    if (
+      $(`${popup} .replaceNewlineWithSpace input`).prop("checked") as boolean
+    ) {
       $(`${popup} .inputs .replaceNewLinesButtons`).removeClass("disabled");
     } else {
       $(`${popup} .inputs .replaceNewLinesButtons`).addClass("disabled");
@@ -89,7 +93,7 @@ export function show(noAnim = false): void {
 
 $(`${popup} .delimiterCheck input`).on("change", () => {
   let delimiter;
-  if ($(`${popup} .delimiterCheck input`).prop("checked")) {
+  if ($(`${popup} .delimiterCheck input`).prop("checked") as boolean) {
     delimiter = "|";
 
     $(`${popup} .randomInputFields .sectioncount `).removeClass("hidden");
@@ -118,12 +122,12 @@ $(`${popup} .delimiterCheck input`).on("change", () => {
   CustomText.setDelimiter(delimiter);
 });
 
-interface HideOptions {
+type HideOptions = {
   noAnim?: boolean | undefined;
   resetState?: boolean | undefined;
-}
+};
 
-export function hide(options = {} as HideOptions): void {
+function hide(options = {} as HideOptions): void {
   if (options.noAnim === undefined) options.noAnim = false;
   if (options.resetState === undefined) options.resetState = true;
 
@@ -138,17 +142,7 @@ export function hide(options = {} as HideOptions): void {
         options.noAnim ? 0 : 125,
         () => {
           if (options.resetState) {
-            const newText = CustomText.text.map((word) => {
-              if (word[word.length - 1] === "|") {
-                word = word.slice(0, -1);
-              }
-              return word;
-            });
-
-            CustomText.setPopupTextareaState(
-              // CustomText.text.join(CustomText.delimiter)
-              newText.join(CustomText.delimiter)
-            );
+            CustomText.setPopupTextareaStateToSaved();
           }
 
           $(wrapper).addClass("hidden");
@@ -165,7 +159,7 @@ $(wrapper).on("mousedown", (e) => {
 });
 
 $(`${popup} .inputs .randomWordsCheckbox input`).on("change", () => {
-  if ($(`${popup} .randomWordsCheckbox input`).prop("checked")) {
+  if ($(`${popup} .randomWordsCheckbox input`).prop("checked") as boolean) {
     $(`${popup} .inputs .randomInputFields`).removeClass("disabled");
   } else {
     $(`${popup} .inputs .randomInputFields`).addClass("disabled");
@@ -173,7 +167,7 @@ $(`${popup} .inputs .randomWordsCheckbox input`).on("change", () => {
 });
 
 $(`${popup} .replaceNewlineWithSpace input`).on("change", () => {
-  if ($(`${popup} .replaceNewlineWithSpace input`).prop("checked")) {
+  if ($(`${popup} .replaceNewlineWithSpace input`).prop("checked") as boolean) {
     $(`${popup} .inputs .replaceNewLinesButtons`).removeClass("disabled");
   } else {
     $(`${popup} .inputs .replaceNewLinesButtons`).addClass("disabled");
@@ -227,24 +221,42 @@ $(`${popup} .randomInputFields .sectioncount input`).on("keypress", () => {
 function apply(): void {
   let text = ($(`${popup} textarea`).val() as string).normalize();
 
+  if (text === "") {
+    Notifications.add("Text cannot be empty", 0);
+    return;
+  }
+
+  CustomText.setPopupTextareaState(text, true);
+
   text = text.trim();
   // text = text.replace(/[\r]/gm, " ");
-  text = text.replace(/\\\\t/gm, "\t");
-  text = text.replace(/\\\\n/gm, "\n");
-  text = text.replace(/\\t/gm, "\t");
-  text = text.replace(/\\n/gm, "\n");
+
+  //replace any characters that look like a space with an actual space
+  text = text.replace(/[\u2000-\u200A\u202F\u205F\u00A0]/g, " ");
+
+  //replace zero width characters
+  text = text.replace(/[\u200B-\u200D\u2060\uFEFF]/g, "");
+
+  if (
+    $(`${popup} .replaceControlCharacters input`).prop("checked") as boolean
+  ) {
+    text = text.replace(/([^\\]|^)\\t/gm, "$1\t");
+    text = text.replace(/([^\\]|^)\\n/gm, "$1\n");
+    text = text.replace(/\\\\t/gm, "\\t");
+    text = text.replace(/\\\\n/gm, "\\n");
+  }
+
   text = text.replace(/ +/gm, " ");
-  // text = text.replace(/(\r\n)+/g, "\r\n");
-  // text = text.replace(/(\n)+/g, "\n");
-  // text = text.replace(/(\r)+/g, "\r");
   text = text.replace(/( *(\r\n|\r|\n) *)/g, "\n ");
-  if ($(`${popup} .typographyCheck input`).prop("checked")) {
+  if ($(`${popup} .typographyCheck input`).prop("checked") as boolean) {
     text = Misc.cleanTypographySymbols(text);
   }
-  if ($(`${popup} .replaceNewlineWithSpace input`).prop("checked")) {
+  if ($(`${popup} .replaceNewlineWithSpace input`).prop("checked") as boolean) {
     let periods = true;
     if (
-      $($(`${popup} .replaceNewLinesButtons .button`)[0]).hasClass("active")
+      $(
+        $(`${popup} .replaceNewLinesButtons .button`)[0] as HTMLElement
+      ).hasClass("active")
     ) {
       periods = false;
     }
@@ -258,10 +270,9 @@ function apply(): void {
       text = text.replace(/ +/gm, " ");
     }
   }
-  // text = Misc.remove_non_ascii(text);
-  text = text.replace(/[\u2060]/g, "");
 
-  CustomText.setText(text.split(CustomText.delimiter));
+  const words = text.split(CustomText.delimiter).filter((word) => word !== "");
+  CustomText.setText(words);
 
   CustomText.setWord(
     parseInt(($(`${popup} .wordcount input`).val() as string) || "-1")
@@ -274,19 +285,19 @@ function apply(): void {
     parseInt(($(`${popup} .sectioncount input`).val() as string) || "-1")
   );
   CustomText.setIsWordRandom(
-    $(`${popup} .randomWordsCheckbox input`).prop("checked") &&
+    ($(`${popup} .randomWordsCheckbox input`).prop("checked") as boolean) &&
       CustomText.word > -1
   );
   CustomText.setIsTimeRandom(
-    $(`${popup} .randomWordsCheckbox input`).prop("checked") &&
+    ($(`${popup} .randomWordsCheckbox input`).prop("checked") as boolean) &&
       CustomText.time > -1
   );
   CustomText.setIsSectionRandom(
-    $(`${popup} .randomWordsCheckbox input`).prop("checked") &&
+    ($(`${popup} .randomWordsCheckbox input`).prop("checked") as boolean) &&
       CustomText.section > -1
   );
   if (
-    $(`${popup} .randomWordsCheckbox input`).prop("checked") &&
+    ($(`${popup} .randomWordsCheckbox input`).prop("checked") as boolean) &&
     !CustomText.isTimeRandom &&
     !CustomText.isWordRandom &&
     !CustomText.isSectionRandom
@@ -302,7 +313,7 @@ function apply(): void {
   }
 
   if (
-    $(`${popup} .randomWordsCheckbox input`).prop("checked") &&
+    ($(`${popup} .randomWordsCheckbox input`).prop("checked") as boolean) &&
     CustomText.isTimeRandom &&
     CustomText.isWordRandom
   ) {
@@ -355,28 +366,53 @@ $(document).on("keydown", (event) => {
 });
 
 $("#popups").on("click", `${popup} .wordfilter`, () => {
-  hide({ noAnim: true });
-  WordFilterPopup.show(true, () => {
-    show(true);
-  });
+  hide({ noAnim: true, resetState: false });
+  //todo use modal chain
+  void WordFilterPopup.show();
 });
 
 $(`${popup} .buttonsTop .showSavedTexts`).on("click", () => {
   hide({ noAnim: true });
-  SavedTextsPopup.show(true, () => {
+  void SavedTextsPopup.show(true, () => {
     show(true);
   });
 });
 
 $(`#customTextPopupWrapper .buttonsTop .saveCustomText`).on("click", () => {
   hide({ noAnim: true, resetState: false });
-  SaveCustomTextPopup.show(true, () => {
+  void SaveCustomTextPopup.show(true, () => {
     show(true);
   });
 });
 
 $(`#customTextPopupWrapper .longCustomTextWarning .button`).on("click", () => {
   $(`#customTextPopup .longCustomTextWarning`).addClass("hidden");
+});
+
+$(`#fileInput`).on("change", () => {
+  const file = ($(`#fileInput`)[0] as HTMLInputElement).files?.[0];
+  if (file) {
+    if (file.type !== "text/plain") {
+      Notifications.add("File is not a text file", -1, {
+        duration: 5,
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.readAsText(file, "UTF-8");
+
+    reader.onload = (readerEvent): void => {
+      const content = readerEvent.target?.result as string;
+      $(`${popup} textarea`).val(content);
+      $(`#fileInput`).val("");
+    };
+    reader.onerror = (): void => {
+      Notifications.add("Failed to read file", -1, {
+        duration: 5,
+      });
+    };
+  }
 });
 
 Skeleton.save(skeletonId);

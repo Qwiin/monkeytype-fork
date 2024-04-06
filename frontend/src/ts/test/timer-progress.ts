@@ -1,6 +1,6 @@
 import Config from "../config";
 import * as CustomText from "./custom-text";
-import * as Misc from "../utils/misc";
+import * as DateTime from "../utils/date-and-time";
 import * as TestWords from "./test-words";
 import * as TestInput from "./test-input";
 import * as Time from "../states/time";
@@ -96,7 +96,11 @@ const miniTimerNumberElement = document.querySelector(
 
 function getCurrentCount(): number {
   if (Config.mode === "custom" && CustomText.isSectionRandom) {
-    return TestWords.words.sectionIndexList[TestWords.words.currentIndex] - 1;
+    return (
+      (TestWords.words.sectionIndexList[
+        TestWords.words.currentIndex
+      ] as number) - 1
+    );
   } else {
     return TestInput.input.history.length;
   }
@@ -124,17 +128,17 @@ export function update(): void {
           "linear"
         );
     } else if (Config.timerStyle === "text") {
-      let displayTime = Misc.secondsToString(maxtime - time);
+      let displayTime = DateTime.secondsToString(maxtime - time);
       if (maxtime === 0) {
-        displayTime = Misc.secondsToString(time);
+        displayTime = DateTime.secondsToString(time);
       }
       if (timerNumberElement !== null) {
         timerNumberElement.innerHTML = "<div>" + displayTime + "</div>";
       }
     } else if (Config.timerStyle === "mini") {
-      let displayTime = Misc.secondsToString(maxtime - time);
+      let displayTime = DateTime.secondsToString(maxtime - time);
       if (maxtime === 0) {
-        displayTime = Misc.secondsToString(time);
+        displayTime = DateTime.secondsToString(time);
       }
       if (miniTimerNumberElement !== null) {
         miniTimerNumberElement.innerHTML = displayTime;

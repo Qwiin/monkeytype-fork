@@ -2,12 +2,19 @@ import * as db from "../init/db";
 import { roundTo2 } from "../utils/misc";
 import MonkeyError from "../utils/error";
 
+type PublicTypingStatsDB = SharedTypes.PublicTypingStats & { _id: "stats" };
+type PublicSpeedStatsDB = {
+  _id: "speedStatsHistogram";
+  english_time_15: SharedTypes.SpeedHistogram;
+  english_time_60: SharedTypes.SpeedHistogram;
+};
+
 export async function updateStats(
   restartCount: number,
   time: number
 ): Promise<boolean> {
-  await db.collection<MonkeyTypes.PublicStats>("public").updateOne(
-    { type: "stats" },
+  await db.collection<PublicTypingStatsDB>("public").updateOne(
+    { _id: "stats" },
     {
       $inc: {
         testsCompleted: 1,
@@ -29,17 +36,18 @@ export async function getSpeedHistogram(
   mode2: string
 ): Promise<Record<string, number>> {
   const key = `${language}_${mode}_${mode2}`;
+
   const stats = await db
-    .collection<MonkeyTypes.PublicSpeedStats>("public")
-    .findOne({ type: "speedStats" }, { projection: { [key]: 1 } });
+    .collection<PublicSpeedStatsDB>("public")
+    .findOne({ _id: "speedStatsHistogram" }, { projection: { [key]: 1 } });
   return stats?.[key] ?? {};
 }
 
 /** Get typing stats such as total number of tests completed on site */
-export async function getTypingStats(): Promise<MonkeyTypes.PublicStats> {
+export async function getTypingStats(): Promise<PublicTypingStatsDB> {
   const stats = await db
-    .collection<MonkeyTypes.PublicStats>("public")
-    .findOne({ type: "stats" }, { projection: { _id: 0 } });
+    .collection<PublicTypingStatsDB>("public")
+    .findOne({ _id: "stats" }, { projection: { _id: 0 } });
   if (!stats) {
     throw new MonkeyError(
       404,

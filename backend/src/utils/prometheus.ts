@@ -80,7 +80,7 @@ export function setLeaderboard(
   language: string,
   mode: string,
   mode2: string,
-  times: number[]
+  times: [number, number, number, number]
 ): void {
   leaderboardUpdate.set({ language, mode, mode2, step: "aggregate" }, times[0]);
   leaderboardUpdate.set({ language, mode, mode2, step: "loop" }, times[1]);
@@ -89,7 +89,7 @@ export function setLeaderboard(
 }
 
 export function incrementResult(
-  res: MonkeyTypes.Result<MonkeyTypes.Mode>
+  res: SharedTypes.Result<SharedTypes.Config.Mode>
 ): void {
   const {
     mode,
@@ -177,6 +177,16 @@ const serverVersionCounter = new Counter({
 
 export function recordServerVersion(serverVersion: string): void {
   serverVersionCounter.inc({ version: serverVersion });
+}
+
+const clientErrorByVersion = new Counter({
+  name: "api_client_error_by_version",
+  help: "Client versions which are experiencing 400 errors",
+  labelNames: ["version"],
+});
+
+export function recordClientErrorByVersion(version: string): void {
+  clientErrorByVersion.inc({ version });
 }
 
 const authTime = new Histogram({

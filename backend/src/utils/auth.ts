@@ -58,3 +58,16 @@ export async function updateUserEmail(
     emailVerified: false,
   });
 }
+
+export async function deleteUser(uid: string): Promise<void> {
+  await FirebaseAdmin().auth().deleteUser(uid);
+  removeTokensFromCacheByUid(uid);
+}
+
+export function removeTokensFromCacheByUid(uid: string): void {
+  for (const entry of tokenCache.entries()) {
+    if (entry[1].uid === uid) {
+      tokenCache.delete(entry[0]);
+    }
+  }
+}

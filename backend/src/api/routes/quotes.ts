@@ -14,7 +14,10 @@ const router = Router();
 
 const checkIfUserIsQuoteMod = checkUserPermissions({
   criteria: (user) => {
-    return !!user.quoteMod;
+    return (
+      user.quoteMod === true ||
+      (typeof user.quoteMod === "string" && user.quoteMod !== "")
+    );
   },
 });
 
@@ -24,6 +27,15 @@ router.get(
   RateLimit.newQuotesGet,
   checkIfUserIsQuoteMod,
   asyncHandler(QuoteController.getQuotes)
+);
+
+router.get(
+  "/isSubmissionEnabled",
+  authenticateRequest({
+    isPublic: true,
+  }),
+  RateLimit.newQuotesIsSubmissionEnabled,
+  asyncHandler(QuoteController.isSubmissionEnabled)
 );
 
 router.post(
@@ -37,21 +49,23 @@ router.post(
   }),
   authenticateRequest(),
   RateLimit.newQuotesAdd,
-  validateRequest({
-    body: {
-      text: joi.string().min(60).required(),
-      source: joi.string().required(),
-      language: joi
-        .string()
-        .regex(/^[\w+]+$/)
-        .required(),
-      captcha: joi
-        .string()
-        .regex(/[\w-_]+/)
-        .required(),
+  validateRequest(
+    {
+      body: {
+        text: joi.string().min(60).required(),
+        source: joi.string().required(),
+        language: joi
+          .string()
+          .regex(/^[\w+]+$/)
+          .required(),
+        captcha: joi
+          .string()
+          .regex(/[\w-_]+/)
+          .required(),
+      },
     },
-    validationErrorMessage: "Please fill all the fields",
-  }),
+    { validationErrorMessage: "Please fill all the fields" }
+  ),
   asyncHandler(QuoteController.addQuote)
 );
 
@@ -59,14 +73,16 @@ router.post(
   "/approve",
   authenticateRequest(),
   RateLimit.newQuotesAction,
-  validateRequest({
-    body: {
-      quoteId: joi.string().required(),
-      editText: joi.string().allow(null),
-      editSource: joi.string().allow(null),
+  validateRequest(
+    {
+      body: {
+        quoteId: joi.string().required(),
+        editText: joi.string().allow(null),
+        editSource: joi.string().allow(null),
+      },
     },
-    validationErrorMessage: "Please fill all the fields",
-  }),
+    { validationErrorMessage: "Please fill all the fields" }
+  ),
   checkIfUserIsQuoteMod,
   asyncHandler(QuoteController.approveQuote)
 );

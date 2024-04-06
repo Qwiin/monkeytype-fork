@@ -1,4 +1,4 @@
-export default <MonkeyTypes.Config>{
+export default {
   theme: "serika_dark",
   themeLight: "serika",
   themeDark: "serika_dark",
@@ -31,7 +31,6 @@ export default <MonkeyTypes.Config>{
   language: "english",
   fontSize: 1.5,
   freedomMode: false,
-  resultFilters: null,
   difficulty: "normal",
   blindMode: false,
   quickEnd: false,
@@ -60,7 +59,7 @@ export default <MonkeyTypes.Config>{
   alwaysShowWordsHistory: false,
   singleListCommandLine: "manual",
   capsLockWarning: true,
-  playSoundOnError: false,
+  playSoundOnError: "off",
   playSoundOnClick: "off",
   soundVolume: "0.5",
   startGraphsAtZero: true,
@@ -69,11 +68,11 @@ export default <MonkeyTypes.Config>{
   paceCaretCustomSpeed: 100,
   repeatedPace: true,
   pageWidth: "125",
-  accountChart: ["on", "on", "on"],
+  accountChart: ["on", "on", "on", "on"],
   minWpm: "off",
   minWpmCustomSpeed: 100,
   highlightMode: "letter",
-  alwaysShowCPM: false,
+  typingSpeedUnit: "wpm",
   ads: "result",
   hideExtraLetters: false,
   strictSpace: false,
@@ -96,4 +95,4 @@ export default <MonkeyTypes.Config>{
   lazyMode: false,
   showAverage: "off",
   tapeMode: "off",
-};
+} as SharedTypes.Config;

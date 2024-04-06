@@ -7,43 +7,39 @@ import * as ConfigEvent from "./observables/config-event";
 import { debounce, throttle } from "throttle-debounce";
 import * as TestUI from "./test/test-ui";
 import { get as getActivePage } from "./states/active-page";
-import { isLocalhost } from "./utils/misc";
+import { isDevEnvironment } from "./utils/misc";
 
-export function updateKeytips(): void {
+let isPreviewingFont = false;
+export function previewFontFamily(font: string): void {
+  document.documentElement.style.setProperty(
+    "--font",
+    '"' + font.replace(/_/g, " ") + '", "Roboto Mono", "Vazirmatn"'
+  );
+  isPreviewingFont = true;
+}
+
+export function clearFontPreview(): void {
+  if (!isPreviewingFont) return;
+  previewFontFamily(Config.fontFamily);
+  isPreviewingFont = false;
+}
+
+function updateKeytips(): void {
   const modifierKey = window.navigator.userAgent.toLowerCase().includes("mac")
     ? "cmd"
     : "ctrl";
 
-  if (Config.quickRestart === "esc") {
-    $(".pageSettings .tip").html(`
-    tip: You can also change all these settings quickly using the
-    command line (<key>${modifierKey}</key>+<key>shift</key>+<key>p</key>)`);
-  } else {
-    $(".pageSettings .tip").html(`
-    tip: You can also change all these settings quickly using the
-    command line (<key>esc</key> or <key>${modifierKey}</key>+<key>shift</key>+<key>p</key>)`);
-  }
-
-  if (Config.quickRestart === "esc") {
-    $("#bottom .keyTips").html(`
-    <key>esc</key> - restart test<br>
-    <key>tab</key> or <key>${modifierKey}</key>+<key>shift</key>+<key>p</key> - command line`);
-  } else if (Config.quickRestart === "tab") {
-    $("#bottom .keyTips").html(`
-    <key>tab</key> - restart test<br>
-      <key>esc</key> or <key>${modifierKey}</key>+<key>shift</key>+<key>p</key> - command line`);
-  } else {
-    $("#bottom .keyTips").html(`
-    <key>tab</key> + <key>enter</key> - restart test<br>
-    <key>esc</key> or <key>${modifierKey}</key>+<key>shift</key>+<key>p</key> - command line`);
-  }
+  const commandKey = Config.quickRestart === "esc" ? "tab" : "esc";
+  $("footer .keyTips").html(`
+    <key>${Config.quickRestart}</key> - restart test<br>
+    <key>${commandKey}</key> or <key>${modifierKey}</key>+<key>shift</key>+<key>p</key> - command line`);
 }
 
-if (isLocalhost()) {
+if (isDevEnvironment()) {
   window.onerror = function (error): void {
-    Notifications.add(error.toString(), -1);
+    Notifications.add(JSON.stringify(error), -1);
   };
-  $("#top .logo .top").text("localhost");
+  $("header #logo .top").text("localhost");
   $("head title").text($("head title").text() + " (localhost)");
   $("body").append(
     `<div class="devIndicator tl">local</div><div class="devIndicator br">local</div>`
@@ -83,8 +79,8 @@ window.addEventListener("beforeunload", (event) => {
   }
 });
 
-const debouncedEvent = debounce(250, async () => {
-  Caret.updatePosition();
+const debouncedEvent = debounce(250, () => {
+  void Caret.updatePosition();
   if (getActivePage() === "test" && !TestUI.resultVisible) {
     if (Config.tapeMode !== "off") {
       TestUI.scrollTape();

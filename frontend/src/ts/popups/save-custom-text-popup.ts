@@ -3,7 +3,7 @@ import * as Notifications from "../elements/notifications";
 import * as CustomTextState from "../states/custom-text-name";
 import { InputIndicator } from "../elements/input-indicator";
 import { debounce } from "throttle-debounce";
-import * as Skeleton from "./skeleton";
+import * as Skeleton from "../utils/skeleton";
 import { isPopupVisible } from "../utils/misc";
 
 const wrapperId = "saveCustomTextPopupWrapper";
@@ -30,7 +30,7 @@ export async function show(
   noAnim = false,
   callbackOnHide: () => void | undefined
 ): Promise<void> {
-  Skeleton.append(wrapperId);
+  Skeleton.append(wrapperId, "popups");
   if (!isPopupVisible(wrapperId)) {
     callbackFuncOnHide = callbackOnHide;
 
@@ -75,6 +75,11 @@ function save(): boolean {
     return false;
   }
 
+  if (text.length === 0) {
+    Notifications.add("Custom text can't be empty", 0);
+    return false;
+  }
+
   text = text.replace(/( *(\r\n|\r|\n) *)/g, "\n ");
 
   CustomText.setCustomText(name, text, checkbox);
@@ -84,7 +89,7 @@ function save(): boolean {
 }
 
 $("#popups").on("click", `#saveCustomTextPopupWrapper .button.save`, () => {
-  if (save() === true) hide(true);
+  if (save()) hide(true);
 });
 
 $("#saveCustomTextPopupWrapper").on("mousedown", (e) => {

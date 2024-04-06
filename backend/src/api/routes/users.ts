@@ -181,8 +181,15 @@ router.patch(
         .string()
         .valid("time", "words", "quote", "zen", "custom")
         .required(),
-      mode2: joi.string().required(),
-      language: joi.string().required(),
+      mode2: joi
+        .string()
+        .regex(/^(\d)+|custom|zen/)
+        .required(),
+      language: joi
+        .string()
+        .max(50)
+        .pattern(/^[a-zA-Z0-9_+]+$/)
+        .required(),
       rank: joi.number().required(),
     },
   }),
@@ -247,7 +254,7 @@ router.delete(
   RateLimit.userCustomFilterRemove,
   validateRequest({
     params: {
-      presetId: joi.string().required(),
+      presetId: joi.string().token().required(),
     },
   }),
   asyncHandler(UserController.removeResultFilterPreset)
@@ -413,8 +420,11 @@ router.get(
   withApeRateLimiter(RateLimit.userGet),
   validateRequest({
     query: {
-      mode: joi.string().required(),
-      mode2: joi.string(),
+      mode: joi
+        .string()
+        .valid("time", "words", "quote", "zen", "custom")
+        .required(),
+      mode2: joi.string().regex(/^(\d)+|custom|zen/),
     },
   }),
   asyncHandler(UserController.getPersonalBests)
@@ -486,15 +496,18 @@ router.get(
   requireProfilesEnabled,
   authenticateRequest({
     isPublic: true,
-    acceptApeKeys: true,
   }),
   withApeRateLimiter(RateLimit.userProfileGet),
   validateRequest({
     params: {
-      uidOrName: joi.string().required(),
+      uidOrName: joi
+        .alternatives()
+        .try(usernameValidation, joi.string().token().max(50)),
     },
     query: {
-      isUid: joi.string().allow(""),
+      isUid: joi.string().valid("").messages({
+        "any.only": "isUid must be empty",
+      }),
     },
   }),
   asyncHandler(UserController.getProfile)
@@ -634,6 +647,16 @@ router.post(
     },
   }),
   asyncHandler(UserController.sendForgotPasswordEmail)
+);
+
+router.post(
+  "/revokeAllTokens",
+  RateLimit.userRevokeAllTokens,
+  authenticateRequest({
+    requireFreshToken: true,
+    noCache: true,
+  }),
+  asyncHandler(UserController.revokeAllTokens)
 );
 
 export default router;

@@ -27,7 +27,7 @@ const CONFIG_SCHEMA = joi.object({
   showLiveWpm: joi.boolean(),
   showTimerProgress: joi.boolean(),
   smoothCaret: joi.string().valid("off", "slow", "medium", "fast"),
-  quickRestart: joi.string().valid("off", "tab", "esc"),
+  quickRestart: joi.string().valid("off", "tab", "esc", "enter"),
   punctuation: joi.boolean(),
   numbers: joi.boolean(),
   words: joi.number().min(0),
@@ -77,7 +77,11 @@ const CONFIG_SCHEMA = joi.object({
   keymapLegendStyle: joi
     .string()
     .valid("lowercase", "uppercase", "blank", "dynamic"),
-  keymapLayout: joi.string().valid().max(50).token(),
+  keymapLayout: joi
+    .string()
+    .regex(/[\w-_]+/)
+    .valid()
+    .max(50),
   keymapShowTopRow: joi.string().valid("always", "layout", "never"),
   fontFamily: joi
     .string()
@@ -88,10 +92,11 @@ const CONFIG_SCHEMA = joi.object({
   alwaysShowWordsHistory: joi.boolean(),
   singleListCommandLine: joi.string().valid("manual", "on"),
   capsLockWarning: joi.boolean(),
-  playSoundOnError: joi.boolean(),
-  playSoundOnClick: joi
-    .string()
-    .valid("off", ..._.range(1, 14).map(_.toString)),
+  playSoundOnError: joi.string().valid("off", ..._.range(1, 5).map(_.toString)),
+  playSoundOnClick: joi.alternatives().try(
+    joi.boolean(), //todo remove soon
+    joi.string().valid("off", ..._.range(1, 16).map(_.toString))
+  ),
   soundVolume: joi.string().valid("0.1", "0.5", "1.0"),
   startGraphsAtZero: joi.boolean(),
   showOutOfFocusWarning: joi.boolean(),
@@ -101,12 +106,26 @@ const CONFIG_SCHEMA = joi.object({
   paceCaretCustomSpeed: joi.number().min(0),
   repeatedPace: joi.boolean(),
   pageWidth: joi.string().valid("100", "125", "150", "200", "max"),
-  accountChart: joi.array().items(joi.string().valid("on", "off")).optional(),
+  accountChart: joi
+    .array()
+    .items(joi.string().valid("on", "off"))
+    .min(3)
+    .max(4)
+    .optional(), //replace min max with length 4 after a while
   minWpm: joi.string().valid("off", "custom"),
   minWpmCustomSpeed: joi.number().min(0),
-  highlightMode: joi.string().valid("off", "letter", "word"),
+  highlightMode: joi
+    .string()
+    .valid(
+      "off",
+      "letter",
+      "word",
+      "next_word",
+      "next_two_words",
+      "next_three_words"
+    ),
   tapeMode: joi.string().valid("off", "letter", "word"),
-  alwaysShowCPM: joi.boolean(),
+  typingSpeedUnit: joi.string().valid("wpm", "cpm", "wps", "cps", "wph"),
   enableAds: joi.string().valid("off", "on", "max"),
   ads: joi.string().valid("off", "result", "on", "sellout"),
   hideExtraLetters: joi.boolean(),
@@ -128,7 +147,7 @@ const CONFIG_SCHEMA = joi.object({
   burstHeatmap: joi.boolean(),
   britishEnglish: joi.boolean(),
   lazyMode: joi.boolean(),
-  showAverage: joi.string().valid("off", "wpm", "acc", "both"),
+  showAverage: joi.string().valid("off", "speed", "acc", "both"),
 });
 
 export default CONFIG_SCHEMA;

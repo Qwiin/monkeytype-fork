@@ -15,9 +15,13 @@ const mockPersonalBest = {
   timestamp: 13123123,
 };
 
-const mockResultFilter = {
-  _id: new ObjectId(),
+const mockResultFilter: SharedTypes.ResultFilters = {
+  _id: "id",
   name: "sfdkjhgdf",
+  pb: {
+    no: true,
+    yes: true,
+  },
   difficulty: {
     normal: true,
     expert: false,
@@ -111,6 +115,36 @@ describe("UserDal", () => {
     await expect(
       UserDAL.addUser(newUser.name, newUser.email, newUser.uid)
     ).rejects.toThrow("User document already exists");
+  });
+
+  it("isNameAvailable should correctly check if a username is available", async () => {
+    // given
+    await UserDAL.addUser("user1", "user1@email.com", "userId1");
+    await UserDAL.addUser("user2", "user2@email.com", "userId2");
+
+    const testCases = [
+      {
+        name: "user1",
+        whosChecking: "userId1",
+        expected: true,
+      },
+      {
+        name: "USER1",
+        whosChecking: "userId1",
+        expected: true,
+      },
+      {
+        name: "user2",
+        whosChecking: "userId1",
+        expected: false,
+      },
+    ];
+
+    // when, then
+    for (const { name, expected, whosChecking } of testCases) {
+      const isAvailable = await UserDAL.isNameAvailable(name, whosChecking);
+      expect(isAvailable).toBe(expected);
+    }
   });
 
   it("updatename should not allow unavailable usernames", async () => {
@@ -353,7 +387,7 @@ describe("UserDal", () => {
     const user = await UserDAL.getUser("TestID", "test add result filters");
     const createdFilter = user.resultFilterPresets ?? [];
 
-    expect(result).toStrictEqual(createdFilter[0]._id);
+    expect(result).toStrictEqual(createdFilter[0]?._id);
   });
 
   it("updateProfile should appropriately handle multiple profile updates", async () => {

@@ -1,6 +1,7 @@
 import Config from "../config";
 import * as TestState from "../test/test-state";
 import * as ConfigEvent from "../observables/config-event";
+import Format from "../utils/format";
 
 const liveWpmElement = document.querySelector("#liveWpm") as Element;
 const miniLiveWpmElement = document.querySelector(
@@ -12,20 +13,20 @@ export function update(wpm: number, raw: number): void {
   if (Config.blindMode) {
     number = raw;
   }
-  if (Config.alwaysShowCPM) {
-    number = Math.round(number * 5);
-  }
-  miniLiveWpmElement.innerHTML = number.toString();
-  liveWpmElement.innerHTML = number.toString();
+  const numberText = Format.typingSpeed(number, { showDecimalPlaces: false });
+  miniLiveWpmElement.innerHTML = numberText;
+  liveWpmElement.innerHTML = numberText;
 }
+
+let state = false;
 
 export function show(): void {
   if (!Config.showLiveWpm) return;
   if (!TestState.isActive) return;
+  if (state) return;
   if (Config.timerStyle === "mini") {
-    if (!miniLiveWpmElement.classList.contains("hidden")) return;
     $(miniLiveWpmElement)
-      .stop(true, true)
+      .stop(true, false)
       .removeClass("hidden")
       .css("opacity", 0)
       .animate(
@@ -35,9 +36,8 @@ export function show(): void {
         125
       );
   } else {
-    if (!liveWpmElement.classList.contains("hidden")) return;
     $(liveWpmElement)
-      .stop(true, true)
+      .stop(true, false)
       .removeClass("hidden")
       .css("opacity", 0)
       .animate(
@@ -47,11 +47,13 @@ export function show(): void {
         125
       );
   }
+  state = true;
 }
 
 export function hide(): void {
+  if (!state) return;
   $(liveWpmElement)
-    .stop(true, true)
+    .stop(true, false)
     .animate(
       {
         opacity: 0,
@@ -62,7 +64,7 @@ export function hide(): void {
       }
     );
   $(miniLiveWpmElement)
-    .stop(true, true)
+    .stop(true, false)
     .animate(
       {
         opacity: 0,
@@ -72,8 +74,9 @@ export function hide(): void {
         miniLiveWpmElement.classList.add("hidden");
       }
     );
+  state = false;
 }
 
 ConfigEvent.subscribe((eventKey, eventValue) => {
-  if (eventKey === "showLiveWpm") eventValue ? show() : hide();
+  if (eventKey === "showLiveWpm") (eventValue as boolean) ? show() : hide();
 });
