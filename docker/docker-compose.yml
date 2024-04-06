@@ -11,8 +11,8 @@ services:
       monkeytype-backend:
         condition: service_healthy
     env_file:
-      - path: ./.env
-        required: true
+      - './.env'
+        # required: true
     environment:
       - FIREBASE_APIKEY=${FIREBASE_APIKEY:-""}
       - FIREBASE_AUTHDOMAIN=${FIREBASE_AUTHDOMAIN:-""}
@@ -37,10 +37,10 @@ services:
       - RECAPTCHA_SECRET=${RECAPTCHA_SECRET:-""}
     volumes:
       #uncomment to enable the account system, check the SELF_HOSTING.md file
-      #- type: bind
-      #  source: ./serviceAccountKey.json
-      #  target: /src/credentials/serviceAccountKey.json
-      #  read_only: true
+      - type: bind
+        source: ./serviceAccountKey.json
+        target: /src/credentials/serviceAccountKey.json
+        read_only: true
       - type: bind
         source: ./backend-configuration.json
         target: /app/backend-configuration.json
