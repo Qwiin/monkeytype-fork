@@ -7,7 +7,7 @@ import * as db from "../init/db";
 import MonkeyError from "../utils/error";
 import { compareTwoStrings } from "string-similarity";
 
-const PATH_TO_REPO = "../../../../monkeytype-new-quotes";
+const PATH_TO_REPO = "../../../../smt-quotes";
 
 let git;
 try {
